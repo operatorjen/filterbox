@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>filterbox</title>
+  <style>
+    body { 
+      font-family: monospace;
+      max-width: 1100px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #0f0f0f;
+      color: #e0e0e0
+    }
+    .controls { 
+      background: #1a1a1a;
+      padding: 10px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      display: flex;
+      gap: 12px;
+      border: 1px solid #333;
+      position: fixed;
+      z-index: 2;
+      top: 0;
+      left: 0;
+      right: 0;
+    }
+    input[type="text"] { 
+      flex-grow: 1;
+      padding: 14px;
+      background: #000;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #f7faba;
+      font-family: monospace;
+    }
+    button { 
+      padding: 12px 24px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled { background: #240c0c; color: #777; cursor: not-allowed; }
+    #viewer { 
+      margin-top: 60px;
+      background: #111;
+      padding: 10px;
+      border-radius: 3px;
+      min-height: 400px;
+    }
+    img { 
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+      border: 1px solid #333;
+      margin-bottom: 30px;
+    }
+    .script-tile { 
+      background: #1d1e33;
+      padding: 15px;
+      margin-top: 20px;
+      border-radius: 6px;
+      border-left: 5px solid #444;
+      position: relative;
+    }
+    .byte-label {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      color: rgb(0, 247, 255);
+      font-family: monospace;
+      font-size: 1.1rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .safety-green { border-left: 12px solid #28a745 !important; }
+    .safety-yellow { border-left: 12px solid #ffc107 !important; }
+    .safety-red { border-left: 12px solid #dc3545 !important; }
+    .script-meta { 
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 10px;
+      word-break: break-all;
+      font-family: monospace;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      max-width: 70%;
+      text-overflow: ellipsis;
+    }
+    pre { 
+      max-height: 200px;
+      overflow-y: auto;
+      margin: 0;
+      font-family: monospace;
+      font-size: 1.1rem;
+      line-height: 1.6;
+      background: #080808;
+      padding: 12px;
+      border: 1px solid #222;
+      color: #dcdcdc;
+      white-space: break-spaces;
+    }
+    .analyze-btn {
+      background: #b84a14;
+      font-size: 0.9rem;
+      padding: 6px 12px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+    .analysis-box { 
+      margin-top: 15px;
+      padding: 12px;
+      background: #1e1e1e;
+      font-size: 1.1rem;
+      border-radius: 4px;
+      color: #fff;
+      border: 1px solid #333;
+    }
+    .error { color: #dc3545; font-weight: bold; font-family: monospace; }
+    h3 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 0; color: #888; font-weight: 300; }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <input type="text" id="urlInput" placeholder="ENTER TARGET URL (e.g. google.com)" required>
+    <button id="loadBtn">INITIATE CAPTURE</button>
+  </div>
+  <div id="viewer">
+    <p style="text-align:center; color:#555;">Waiting for input...</p>
+  </div>
+  <script>
+    const loadBtn = document.getElementById('loadBtn')
+    const urlInput = document.getElementById('urlInput')
+    const viewer = document.getElementById('viewer')
+    urlInput.addEventListener("keypress", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        loadBtn.click()
+      }
+    })
+
+    loadBtn.onclick = async () => {
+        const url = urlInput.value
+        if(!url) return
+        loadBtn.disabled = true
+        loadBtn.innerText = "BROWSING..."
+        viewer.innerHTML = "<p style='text-align:center;'>Capturing...</p>"
+        try {
+          const formData = new FormData()
+          formData.append('url', url)
+          const response = await fetch('/screenshot', { method: 'POST', body: formData })
+          const data = await response.json()
+          if (data.success) {
+            window.harvestedScripts = data.scripts
+            let html = `<img src="${data.image}" alt="Screenshot">`
+            if (data.scripts && data.scripts.length > 0) {
+              html += `<h3>ASSETS (${data.scripts.length} FILES)</h3>`
+              data.scripts.forEach((s, index) => {
+                const tileId = `tile-${index}`
+                const formattedBytes = s.size.toLocaleString()
+
+                html += `
+                <div class="script-tile" id="${tileId}">
+                    <div class="byte-label">${formattedBytes}B</div>
+                    <div class="script-meta">SOURCE: ${s.url}</div>
+                    <button class="analyze-btn" onclick="analyzeLogic(this, ${index}, '${tileId}')">Analyze</button>
+                    <pre id="code-${index}">${escapeHTML(s.content)}</pre>
+                </div>`
+              })
+            } else {
+              html += `<p class="error">No logic files (.js, .mjs) detected in capture.</p>`
+            }
+            viewer.innerHTML = html
+          } else {
+            viewer.innerHTML = `<p class="error">CAPTURE_FAILURE: ${data.error}</p>`
+          }
+        } catch (err) {
+          viewer.innerHTML = `<p class="error">CONNECTION_ERROR: Failed to reach server.</p>`
+        } finally {
+          loadBtn.disabled = false
+          loadBtn.innerText = "LOAD"
+        }
+    }
+
+    async function analyzeLogic(button, scriptIndex, tileId) {
+      const scriptContent = window.harvestedScripts[scriptIndex].content
+      button.disabled = true
+      button.innerText = "ANALYZING..."
+      try {
+        const formData = new FormData()
+        formData.append('script_content', scriptContent)
+        const resp = await fetch('/analyze', { method: 'POST', body: formData })
+        const data = await resp.json()
+        if (data.success) {
+          const parts = data.analysis.split('|')
+          const zone = parts[0].replace('[', '').replace(']', '').trim().toLowerCase()
+          const tldr = parts[1] || data.analysis
+          const tile = document.getElementById(tileId)
+          tile.classList.add(`safety-${zone}`);
+          const resultDiv = document.createElement('div')
+          resultDiv.className = 'analysis-box'
+          resultDiv.innerHTML = `<strong>ANALYSIS:</strong> ${tldr}`
+          tile.appendChild(resultDiv)
+          button.remove()
+        }
+      } catch (err) {
+        button.innerText = "ANALYSIS_FAILURE"
+        button.disabled = false
+      }
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>"']/g, (m) => {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]
+      })
+    }
+  </script>
+</body>
+</html>
